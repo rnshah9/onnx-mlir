@@ -1,0 +1,36 @@
+FROM --platform=linux/amd64 ubuntu:22.04
+
+RUN apt-get update
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y vim less file locate
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y cmake ninja-build protobuf-compiler libprotoc-dev build-essential git python3
+
+RUN git clone -n https://github.com/llvm/llvm-project.git
+# Check out a specific branch that is known to work with ONNX-MLIR.
+WORKDIR /llvm-project 
+RUN git checkout 9778ec057cf4214241e4a970f3e764e3cf150181 
+WORKDIR /llvm-project/build
+RUN cmake -G Ninja ../llvm \
+    -DLLVM_ENABLE_PROJECTS=mlir \
+    -DLLVM_TARGETS_TO_BUILD="host" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DLLVM_ENABLE_ASSERTIONS=ON \
+    -DLLVM_ENABLE_RTTI=ON
+RUN cmake --build . -- ${MAKEFLAGS}
+RUN cmake --build . --target check-mlir
+
+WORKDIR /
+COPY . /onnx-mlir
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y python3-dev
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip
+RUN pip3 install onnx
+
+
+# MLIR_DIR must be set with cmake option now
+ENV MLIR_DIR=/llvm-project/build/lib/cmake/mlir
+WORKDIR /onnx-mlir/build
+RUN cmake -G Ninja \
+    -DCMAKE_CXX_COMPILER=/usr/bin/c++ \
+    -DMLIR_DIR=${MLIR_DIR} \
+    ..
+RUN cmake --build .
+
